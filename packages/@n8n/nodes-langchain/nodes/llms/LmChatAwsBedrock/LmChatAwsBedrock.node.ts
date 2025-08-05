@@ -12,6 +12,9 @@ import {
 	type SupplyData,
 } from 'n8n-workflow';
 
+import { getAwsCredentials, getAwsCredentialProvider } from 'n8n-nodes-base/dist/nodes/Aws/GenericFunctions';
+import { awsNodeAuthOptions, awsNodeCredentials } from 'n8n-nodes-base/dist/nodes/Aws/utils';
+
 import { makeN8nLlmFailedAttemptHandler } from '../n8nLlmFailedAttemptHandler';
 import { N8nLlmTracing } from '../N8nLlmTracing';
 
@@ -46,17 +49,13 @@ export class LmChatAwsBedrock implements INodeType {
 
 		outputs: [NodeConnectionTypes.AiLanguageModel],
 		outputNames: ['Model'],
-		credentials: [
-			{
-				name: 'aws',
-				required: true,
-			},
-		],
+		credentials: awsNodeCredentials,
 		requestDefaults: {
 			ignoreHttpStatusErrors: true,
 			baseURL: '=https://bedrock.{{$credentials?.region ?? "eu-central-1"}}.amazonaws.com',
 		},
 		properties: [
+			awsNodeAuthOptions,
 			getConnectionHintNoticeField([NodeConnectionTypes.AiChain, NodeConnectionTypes.AiChain]),
 			{
 				displayName: 'Model Source',
@@ -224,12 +223,7 @@ export class LmChatAwsBedrock implements INodeType {
 	};
 
 	async supplyData(this: ISupplyDataFunctions, itemIndex: number): Promise<SupplyData> {
-		const credentials = await this.getCredentials<{
-			region: string;
-			secretAccessKey: string;
-			accessKeyId: string;
-			sessionToken: string;
-		}>('aws');
+		const { credentials, credentialsType } = await getAwsCredentials(this);
 		const modelName = this.getNodeParameter('model', itemIndex) as string;
 		const options = this.getNodeParameter('options', itemIndex, {}) as {
 			temperature: number;
@@ -240,11 +234,7 @@ export class LmChatAwsBedrock implements INodeType {
 		const proxyAgent = getNodeProxyAgent();
 		const clientConfig: BedrockRuntimeClientConfig = {
 			region: credentials.region,
-			credentials: {
-				secretAccessKey: credentials.secretAccessKey,
-				accessKeyId: credentials.accessKeyId,
-				...(credentials.sessionToken && { sessionToken: credentials.sessionToken }),
-			},
+			credentials: getAwsCredentialProvider(credentials, credentialsType),
 		};
 
 		if (proxyAgent) {
