@@ -1,3 +1,6 @@
+import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
+import { CredentialsConfig } from '@n8n/config';
+import { Container } from '@n8n/di';
 import type { Request } from 'aws4';
 import { sign } from 'aws4';
 import type {
@@ -197,6 +200,7 @@ export const regions = [
 export type AWSRegion = (typeof regions)[number]['name'];
 export type AwsCredentialsType = {
 	region: AWSRegion;
+	credentialType?: 'accessKey' | 'systemCredential';
 	accessKeyId: string;
 	secretAccessKey: string;
 	temporaryCredentials: boolean;
@@ -217,6 +221,22 @@ export type AwsCredentialsType = {
 function parseAwsUrl(url: URL): { region: AWSRegion | null; service: string } {
 	const [service, region] = url.hostname.replace('amazonaws.com', '').split('.');
 	return { service, region: region as AWSRegion };
+}
+
+let availableCredentialTypes = [
+	{
+		name: 'IAM Access Key',
+		value: 'accessKey',
+		description: 'Use IAM access key and secret key directly',
+	},
+];
+const systemCredentialsEnabled = Container.get(CredentialsConfig).allowSystems;
+if (systemCredentialsEnabled) {
+	availableCredentialTypes.push({
+		name: 'Systems',
+		value: 'systemCredential',
+		description: 'Use default credentials provider chain',
+	});
 }
 
 export class Aws implements ICredentialType {
@@ -240,15 +260,32 @@ export class Aws implements ICredentialType {
 			default: 'us-east-1',
 		},
 		{
+			displayName: 'Credential Type',
+			name: 'credentialType',
+			type: 'options',
+			options: availableCredentialTypes,
+			default: 'accessKey',
+		},
+		{
 			displayName: 'Access Key ID',
 			name: 'accessKeyId',
 			type: 'string',
+			displayOptions: {
+				show: {
+					credentialType: ['accessKey'],
+				},
+			},
 			default: '',
 		},
 		{
 			displayName: 'Secret Access Key',
 			name: 'secretAccessKey',
 			type: 'string',
+			displayOptions: {
+				show: {
+					credentialType: ['accessKey'],
+				},
+			},
 			default: '',
 			typeOptions: {
 				password: true,
@@ -500,13 +537,8 @@ export class Aws implements ICredentialType {
 			region,
 		} as unknown as Request;
 
-		const securityHeaders = {
-			accessKeyId: `${credentials.accessKeyId}`.trim(),
-			secretAccessKey: `${credentials.secretAccessKey}`.trim(),
-			sessionToken: credentials.temporaryCredentials
-				? `${credentials.sessionToken}`.trim()
-				: undefined,
-		};
+		const securityHeaders = await this.getSecurityHeaders(credentials);
+
 		try {
 			sign(signOpts, securityHeaders);
 		} catch (err) {
@@ -531,4 +563,34 @@ export class Aws implements ICredentialType {
 			method: 'POST',
 		},
 	};
+
+	private async getSecurityHeaders(credentials: AwsCredentialsType): Promise<{
+		accessKeyId: string;
+		secretAccessKey: string;
+		sessionToken?: string;
+	}> {
+		const credentialType = credentials.credentialType || 'accessKey';
+		if (!systemCredentialsEnabled || credentialType == 'accessKey') {
+			return {
+				accessKeyId: `${credentials.accessKeyId}`.trim(),
+				secretAccessKey: `${credentials.secretAccessKey}`.trim(),
+				sessionToken: credentials.temporaryCredentials
+					? `${credentials.sessionToken}`.trim()
+					: undefined,
+			};
+		}
+
+		const credentialProvider = await fromNodeProviderChain({
+			clientConfig: {
+				region: credentials.region,
+			},
+		})();
+
+		const systemCredential = {
+			accessKeyId: credentialProvider.accessKeyId,
+			secretAccessKey: credentialProvider.secretAccessKey,
+			sessionToken: credentialProvider.sessionToken,
+		};
+		return systemCredential;
+	}
 }
