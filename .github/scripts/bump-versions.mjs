@@ -13,7 +13,7 @@ assert.match(releaseType, /^(patch|minor|major)$/, 'Invalid RELEASE_TYPE');
 
 // TODO: if releaseType is `auto` determine release type based on the changelog
 
-const lastTag = (await exec('git describe --tags --match "flare-n8n@*" --abbrev=0')).stdout.trim();
+const lastTag = (await exec('git describe --tags --match "n8n@*" --abbrev=0')).stdout.trim();
 const packages = JSON.parse((await exec('pnpm ls -r --only-projects --json')).stdout);
 
 const packageMap = {};
