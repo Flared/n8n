@@ -71,6 +71,15 @@ export class McpClientTool implements INodeType {
 					},
 				},
 			},
+			{
+				name: 'httpCustomAuth',
+				required: true,
+				displayOptions: {
+					show: {
+						authentication: ['customAuth'],
+					},
+				},
+			},
 		],
 		properties: [
 			getConnectionHintNoticeField([NodeConnectionTypes.AiAgent]),
@@ -138,6 +147,10 @@ export class McpClientTool implements INodeType {
 						value: 'headerAuth',
 					},
 					{
+						name: 'Custom Auth',
+						value: 'customAuth',
+					},
+					{
 						name: 'None',
 						value: 'none',
 					},
@@ -152,7 +165,7 @@ export class McpClientTool implements INodeType {
 				default: '',
 				displayOptions: {
 					show: {
-						authentication: ['headerAuth', 'bearerAuth'],
+						authentication: ['headerAuth', 'bearerAuth', 'customAuth'],
 					},
 				},
 			},

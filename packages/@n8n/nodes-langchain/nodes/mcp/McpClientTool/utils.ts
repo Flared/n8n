@@ -235,6 +235,20 @@ export async function getAuthHeaders(
 
 			return { headers: { Authorization: `Bearer ${result.token}` } };
 		}
+		case 'customAuth': {
+			const result = await ctx
+				.getCredentials<{ token: string }>('httpCustomAuth')
+				.catch(() => null);
+
+			if (!result) return {};
+
+			const customAuth = jsonParse<IRequestOptionsSimplified>(
+				(httpCustomAuth.json as string) || '{}',
+				{ errorMessage: 'Invalid Custom Auth JSON' },
+			);
+
+			return { headers: customAuth.headers };
+		}
 		case 'none':
 		default: {
 			return {};
