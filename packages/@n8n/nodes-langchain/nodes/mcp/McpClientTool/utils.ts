@@ -8,8 +8,10 @@ import { Toolkit } from 'langchain/agents';
 import {
 	createResultError,
 	createResultOk,
+	jsonParse,
 	type IDataObject,
 	type IExecuteFunctions,
+	type IRequestOptionsSimplified,
 	type Result,
 } from 'n8n-workflow';
 import { z } from 'zod';
@@ -231,6 +233,19 @@ export async function getAuthHeaders(
 			if (!result) return {};
 
 			return { headers: { Authorization: `Bearer ${result.token}` } };
+		}
+		case 'customAuth': {
+			const result = await ctx
+				.getCredentials<{ token: string }>('httpCustomAuth')
+				.catch(() => null);
+
+			if (!result) return {};
+
+			const customAuth = jsonParse<IRequestOptionsSimplified>((result.json as string) || '{}', {
+				errorMessage: 'Invalid Custom Auth JSON',
+			});
+
+			return { headers: customAuth.headers };
 		}
 		case 'none':
 		default: {
