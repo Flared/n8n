@@ -18,6 +18,7 @@ export const useRBACStore = defineStore(STORES.RBAC, () => {
 		user: {},
 		credential: {},
 		variable: {},
+		projectVariable: {},
 		sourceControl: {},
 		externalSecretsProvider: {},
 		externalSecret: {},
@@ -37,6 +38,13 @@ export const useRBACStore = defineStore(STORES.RBAC, () => {
 		securityAudit: {},
 		folder: {},
 		insights: {},
+		dataTable: {},
+		execution: {},
+		workflowTags: {},
+		role: {},
+		mcp: {},
+		mcpApiKey: {},
+		chatHub: {},
 	});
 
 	function addGlobalRole(role: Role) {

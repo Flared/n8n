@@ -7,18 +7,19 @@ import {
 	isSubNodeLog,
 } from '@/features/logs/logs.utils';
 import { useTelemetry } from '@/composables/useTelemetry';
-import { canvasEventBus } from '@/event-bus/canvas';
+import { canvasEventBus } from '@/features/canvas/canvas.eventBus';
 import type { IExecutionResponse } from '@/Interface';
 import { useCanvasStore } from '@/stores/canvas.store';
 import { useLogsStore } from '@/stores/logs.store';
 import { useUIStore } from '@/stores/ui.store';
 import { shallowRef, watch } from 'vue';
-import { computed, type ComputedRef } from 'vue';
+import { computed } from 'vue';
+import type { Ref, ComputedRef } from 'vue';
 import { useWorkflowsStore } from '@/stores/workflows.store';
 
 export function useLogsSelection(
 	execution: ComputedRef<IExecutionResponse | undefined>,
-	tree: ComputedRef<LogEntry[]>,
+	tree: Ref<LogEntry[]>,
 	flatLogEntries: ComputedRef<LogEntry[]>,
 	toggleExpand: (entry: LogEntry, expand?: boolean) => void,
 ) {

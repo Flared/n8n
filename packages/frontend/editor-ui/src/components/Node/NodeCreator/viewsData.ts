@@ -64,11 +64,14 @@ import { useNodeTypesStore } from '@/stores/nodeTypes.store';
 import type { SimplifiedNodeType } from '@/Interface';
 import type { INodeTypeDescription, NodeConnectionType, Themed } from 'n8n-workflow';
 import { EVALUATION_TRIGGER_NODE_TYPE, NodeConnectionTypes } from 'n8n-workflow';
-import { useTemplatesStore } from '@/stores/templates.store';
+import { useTemplatesStore } from '@/features/templates/templates.store';
 import type { BaseTextKey } from '@n8n/i18n';
 import camelCase from 'lodash/camelCase';
 import { useSettingsStore } from '@/stores/settings.store';
-import { useEvaluationStore } from '@/stores/evaluation.store.ee';
+import { useEvaluationStore } from '@/features/evaluation.ee/evaluation.store';
+import { getAiTemplatesCallout, getPreBuiltAgentsCalloutWithDivider } from './utils';
+import { useCalloutHelpers } from '@/composables/useCalloutHelpers';
+
 export interface NodeViewItemSection {
 	key: string;
 	title: string;
@@ -79,6 +82,7 @@ export interface NodeViewItem {
 	key: string;
 	type: string;
 	properties: {
+		key?: string;
 		name?: string;
 		title?: string;
 		icon?: Themed<string>;
@@ -94,7 +98,7 @@ export interface NodeViewItem {
 		description?: string;
 		displayName?: string;
 		tag?: {
-			type: string;
+			type?: string;
 			text: string;
 		};
 		forceIncludeNodes?: string[];
@@ -168,6 +172,7 @@ export function AIView(_nodes: SimplifiedNodeType[]): NodeView {
 	const nodeTypesStore = useNodeTypesStore();
 	const templatesStore = useTemplatesStore();
 	const evaluationStore = useEvaluationStore();
+	const calloutHelpers = useCalloutHelpers();
 	const isEvaluationEnabled = evaluationStore.isEvaluationEnabled;
 
 	const evaluationNode = getEvaluationNode(nodeTypesStore, isEvaluationEnabled);
@@ -186,26 +191,16 @@ export function AIView(_nodes: SimplifiedNodeType[]): NodeView {
 	const aiTransformNode = nodeTypesStore.getNodeType(AI_TRANSFORM_NODE_TYPE);
 	const transformNode = askAiEnabled && aiTransformNode ? [getNodeView(aiTransformNode)] : [];
 
+	const callouts: NodeViewItem[] = !calloutHelpers.isPreBuiltAgentsCalloutVisible.value
+		? [getAiTemplatesCallout(aiTemplatesURL)]
+		: [getPreBuiltAgentsCalloutWithDivider()];
+
 	return {
 		value: AI_NODE_CREATOR_VIEW,
 		title: i18n.baseText('nodeCreator.aiPanel.aiNodes'),
 		subtitle: i18n.baseText('nodeCreator.aiPanel.selectAiNode'),
 		items: [
-			{
-				key: 'ai_templates_root',
-				type: 'link',
-				properties: {
-					title: i18n.baseText('nodeCreator.aiPanel.linkItem.title'),
-					icon: 'box-open',
-					description: i18n.baseText('nodeCreator.aiPanel.linkItem.description'),
-					name: 'ai_templates_root',
-					url: aiTemplatesURL,
-					tag: {
-						type: 'info',
-						text: i18n.baseText('nodeCreator.triggerHelperPanel.manualTriggerTag'),
-					},
-				},
-			},
+			...callouts,
 			...agentNodes,
 			...chainNodes,
 			...transformNode,

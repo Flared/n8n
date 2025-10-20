@@ -4,19 +4,42 @@ import { useRoute, useRouter } from 'vue-router';
 import { onClickOutside, type VueInstance } from '@vueuse/core';
 
 import { useI18n } from '@n8n/i18n';
-import { N8nNavigationDropdown, N8nTooltip, N8nLink, N8nIconButton } from '@n8n/design-system';
+import {
+	N8nNavigationDropdown,
+	N8nTooltip,
+	N8nLink,
+	N8nIconButton,
+	N8nMenuItem,
+	isCustomMenuItem,
+	N8nLogo,
+	N8nPopoverReka,
+	N8nScrollArea,
+	N8nAvatar,
+	N8nText,
+	N8nIcon,
+	N8nButton,
+} from '@n8n/design-system';
 import type { IMenuItem } from '@n8n/design-system';
-import { ABOUT_MODAL_KEY, RELEASE_NOTES_URL, VIEWS, WHATS_NEW_MODAL_KEY } from '@/constants';
+import {
+	ABOUT_MODAL_KEY,
+	EXPERIMENT_TEMPLATE_RECO_V2_KEY,
+	EXPERIMENT_TEMPLATE_RECO_V3_KEY,
+	PROJECT_VARIABLES_EXPERIMENT,
+	RELEASE_NOTES_URL,
+	VIEWS,
+	WHATS_NEW_MODAL_KEY,
+} from '@/constants';
+import { CHAT_VIEW } from '@/features/chatHub/constants';
 import { hasPermission } from '@/utils/rbac/permissions';
 import { useCloudPlanStore } from '@/stores/cloudPlan.store';
 import { useRootStore } from '@n8n/stores/useRootStore';
 import { useSettingsStore } from '@/stores/settings.store';
-import { useTemplatesStore } from '@/stores/templates.store';
+import { useTemplatesStore } from '@/features/templates/templates.store';
 import { useUIStore } from '@/stores/ui.store';
 import { useUsersStore } from '@/stores/users.store';
 import { useVersionsStore } from '@/stores/versions.store';
 import { useWorkflowsStore } from '@/stores/workflows.store';
-import { useSourceControlStore } from '@/stores/sourceControl.store';
+import { useSourceControlStore } from '@/features/sourceControl.ee/sourceControl.store';
 import { useDebounce } from '@/composables/useDebounce';
 import { useExternalHooks } from '@/composables/useExternalHooks';
 import { useTelemetry } from '@/composables/useTelemetry';
@@ -25,10 +48,18 @@ import { useBugReporting } from '@/composables/useBugReporting';
 import { usePageRedirectionHelper } from '@/composables/usePageRedirectionHelper';
 import { useGlobalEntityCreation } from '@/composables/useGlobalEntityCreation';
 import { useBecomeTemplateCreatorStore } from '@/components/BecomeTemplateCreatorCta/becomeTemplateCreatorStore';
-import Logo from '@/components/Logo/Logo.vue';
+import BecomeTemplateCreatorCta from '@/components/BecomeTemplateCreatorCta/BecomeTemplateCreatorCta.vue';
 import VersionUpdateCTA from '@/components/VersionUpdateCTA.vue';
 import { TemplateClickSource, trackTemplatesClick } from '@/utils/experiments';
 import { I18nT } from 'vue-i18n';
+import { usePersonalizedTemplatesV2Store } from '@/experiments/templateRecoV2/stores/templateRecoV2.store';
+import { usePersonalizedTemplatesV3Store } from '@/experiments/personalizedTemplatesV3/stores/personalizedTemplatesV3.store';
+import TemplateTooltip from '@/experiments/personalizedTemplatesV3/components/TemplateTooltip.vue';
+import { useKeybindings } from '@/composables/useKeybindings';
+import { useCalloutHelpers } from '@/composables/useCalloutHelpers';
+import ProjectNavigation from '@/features/projects/components/ProjectNavigation.vue';
+import MainSidebarSourceControl from './MainSidebarSourceControl.vue';
+import { usePostHog } from '@/stores/posthog.store';
 
 const becomeTemplateCreatorStore = useBecomeTemplateCreatorStore();
 const cloudPlanStore = useCloudPlanStore();
@@ -40,6 +71,8 @@ const usersStore = useUsersStore();
 const versionsStore = useVersionsStore();
 const workflowsStore = useWorkflowsStore();
 const sourceControlStore = useSourceControlStore();
+const personalizedTemplatesV2Store = usePersonalizedTemplatesV2Store();
+const personalizedTemplatesV3Store = usePersonalizedTemplatesV3Store();
 
 const { callDebounced } = useDebounce();
 const externalHooks = useExternalHooks();
@@ -49,7 +82,12 @@ const router = useRouter();
 const telemetry = useTelemetry();
 const pageRedirectionHelper = usePageRedirectionHelper();
 const { getReportingURL } = useBugReporting();
+const calloutHelpers = useCalloutHelpers();
+const posthogStore = usePostHog();
 
+useKeybindings({
+	ctrl_alt_o: () => handleSelect('about'),
+});
 useUserHelpers(router, route);
 
 // Template refs
@@ -58,13 +96,15 @@ const user = ref<Element | null>(null);
 // Component data
 const basePath = ref('');
 const fullyExpanded = ref(false);
-const userMenuItems = ref([
+const userMenuItems = ref<IMenuItem[]>([
 	{
 		id: 'settings',
+		icon: 'settings',
 		label: i18n.baseText('settings'),
 	},
 	{
 		id: 'logout',
+		icon: 'door-open',
 		label: i18n.baseText('auth.signout'),
 	},
 ]);
@@ -77,6 +117,13 @@ const showWhatsNewNotification = computed(
 		),
 );
 
+const isProjectVariablesEnabled = computed(() =>
+	posthogStore.isVariantEnabled(
+		PROJECT_VARIABLES_EXPERIMENT.name,
+		PROJECT_VARIABLES_EXPERIMENT.variant,
+	),
+);
+
 const mainMenuItems = computed<IMenuItem[]>(() => [
 	{
 		id: 'cloud-admin',
@@ -86,12 +133,45 @@ const mainMenuItems = computed<IMenuItem[]>(() => [
 		available: settingsStore.isCloudDeployment && hasPermission(['instanceOwner']),
 	},
 	{
-		// Link to in-app templates, available if custom templates are enabled
+		// Link to in-app pre-built agent templates, available experiment is enabled
 		id: 'templates',
 		icon: 'package-open',
 		label: i18n.baseText('mainSidebar.templates'),
 		position: 'bottom',
-		available: settingsStore.isTemplatesEnabled && templatesStore.hasCustomTemplatesHost,
+		available:
+			settingsStore.isTemplatesEnabled &&
+			calloutHelpers.isPreBuiltAgentsCalloutVisible.value &&
+			!(
+				personalizedTemplatesV2Store.isFeatureEnabled() ||
+				personalizedTemplatesV3Store.isFeatureEnabled()
+			),
+		route: { to: { name: VIEWS.PRE_BUILT_AGENT_TEMPLATES } },
+	},
+	{
+		// Link to personalized template modal, available when V2 or V3 experiment is enabled
+		id: 'templates',
+		icon: 'package-open',
+		label: i18n.baseText('mainSidebar.templates'),
+		position: 'bottom',
+		available:
+			settingsStore.isTemplatesEnabled &&
+			(personalizedTemplatesV2Store.isFeatureEnabled() ||
+				personalizedTemplatesV3Store.isFeatureEnabled()),
+	},
+	{
+		// Link to in-app templates, available if custom templates are enabled and experiment is disabled
+		id: 'templates',
+		icon: 'package-open',
+		label: i18n.baseText('mainSidebar.templates'),
+		position: 'bottom',
+		available:
+			settingsStore.isTemplatesEnabled &&
+			!calloutHelpers.isPreBuiltAgentsCalloutVisible.value &&
+			templatesStore.hasCustomTemplatesHost &&
+			!(
+				personalizedTemplatesV2Store.isFeatureEnabled() ||
+				personalizedTemplatesV3Store.isFeatureEnabled()
+			),
 		route: { to: { name: VIEWS.TEMPLATES } },
 	},
 	{
@@ -100,7 +180,14 @@ const mainMenuItems = computed<IMenuItem[]>(() => [
 		icon: 'package-open',
 		label: i18n.baseText('mainSidebar.templates'),
 		position: 'bottom',
-		available: settingsStore.isTemplatesEnabled && !templatesStore.hasCustomTemplatesHost,
+		available:
+			settingsStore.isTemplatesEnabled &&
+			!calloutHelpers.isPreBuiltAgentsCalloutVisible.value &&
+			!templatesStore.hasCustomTemplatesHost &&
+			!(
+				personalizedTemplatesV2Store.isFeatureEnabled() ||
+				personalizedTemplatesV3Store.isFeatureEnabled()
+			),
 		link: {
 			href: templatesStore.websiteTemplateRepositoryURL,
 			target: '_blank',
@@ -112,6 +199,7 @@ const mainMenuItems = computed<IMenuItem[]>(() => [
 		label: i18n.baseText('mainSidebar.variables'),
 		position: 'bottom',
 		route: { to: { name: VIEWS.VARIABLES } },
+		available: !isProjectVariablesEnabled.value,
 	},
 	{
 		id: 'insights',
@@ -122,6 +210,16 @@ const mainMenuItems = computed<IMenuItem[]>(() => [
 		available:
 			settingsStore.isModuleActive('insights') &&
 			hasPermission(['rbac'], { rbac: { scope: 'insights:list' } }),
+	},
+	{
+		id: 'chat',
+		icon: 'bot',
+		label: 'Chat',
+		position: 'bottom',
+		route: { to: { name: CHAT_VIEW } },
+		available:
+			settingsStore.isChatFeatureEnabled &&
+			hasPermission(['rbac'], { rbac: { scope: 'chatHub:message' } }),
 	},
 	{
 		id: 'help',
@@ -219,11 +317,21 @@ const mainMenuItems = computed<IMenuItem[]>(() => [
 				id: 'version-upgrade-cta',
 				component: VersionUpdateCTA,
 				available: versionsStore.hasVersionUpdates,
-				props: {},
+				props: {
+					disabled: !usersStore.canUserUpdateVersion,
+					tooltipText: !usersStore.canUserUpdateVersion
+						? i18n.baseText('whatsNew.updateNudgeTooltip')
+						: undefined,
+				},
 			},
 		],
 	},
 ]);
+
+const visibleMenuItems = computed(() =>
+	mainMenuItems.value.filter((item) => item.available !== false),
+);
+
 const createBtn = ref<InstanceType<typeof N8nNavigationDropdown>>();
 
 const isCollapsed = computed(() => uiStore.sidebarMenuCollapsed);
@@ -289,7 +397,20 @@ const toggleCollapse = () => {
 const handleSelect = (key: string) => {
 	switch (key) {
 		case 'templates':
-			if (settingsStore.isTemplatesEnabled && !templatesStore.hasCustomTemplatesHost) {
+			if (personalizedTemplatesV3Store.isFeatureEnabled()) {
+				personalizedTemplatesV3Store.markTemplateRecommendationInteraction();
+				uiStore.openModalWithData({
+					name: EXPERIMENT_TEMPLATE_RECO_V3_KEY,
+					data: {},
+				});
+				trackTemplatesClick(TemplateClickSource.sidebarButton);
+			} else if (personalizedTemplatesV2Store.isFeatureEnabled()) {
+				uiStore.openModalWithData({
+					name: EXPERIMENT_TEMPLATE_RECO_V2_KEY,
+					data: {},
+				});
+				trackTemplatesClick(TemplateClickSource.sidebarButton);
+			} else if (settingsStore.isTemplatesEnabled && !templatesStore.hasCustomTemplatesHost) {
 				trackTemplatesClick(TemplateClickSource.sidebarButton);
 			}
 			break;
@@ -335,7 +456,7 @@ function onResize() {
 }
 
 async function onResizeEnd() {
-	if (window.outerWidth < 900) {
+	if (window.innerWidth < 900) {
 		uiStore.sidebarMenuCollapsed = true;
 	} else {
 		uiStore.sidebarMenuCollapsed = uiStore.sidebarMenuCollapsedPreference;
@@ -379,8 +500,8 @@ onClickOutside(createBtn as Ref<VueInstance>, () => {
 			<N8nIcon v-else icon="chevron-left" size="xsmall" class="mr-5xs" />
 		</div>
 		<div :class="$style.logo">
-			<Logo
-				location="sidebar"
+			<N8nLogo
+				size="small"
 				:collapsed="isCollapsed"
 				:release-channel="settingsStore.settings.releaseChannel"
 			>
@@ -407,7 +528,7 @@ onClickOutside(createBtn as Ref<VueInstance>, () => {
 						:class="$style.readOnlyEnvironmentIcon"
 					/>
 				</N8nTooltip>
-			</Logo>
+			</N8nLogo>
 			<N8nNavigationDropdown
 				ref="createBtn"
 				data-test-id="universal-add"
@@ -465,82 +586,127 @@ onClickOutside(createBtn as Ref<VueInstance>, () => {
 				</template>
 			</N8nNavigationDropdown>
 		</div>
-		<N8nMenu :items="mainMenuItems" :collapsed="isCollapsed" @select="handleSelect">
-			<template #header>
+		<N8nScrollArea as-child>
+			<div :class="$style.scrollArea">
 				<ProjectNavigation
 					:collapsed="isCollapsed"
 					:plan-name="cloudPlanStore.currentPlanData?.displayName"
 				/>
-			</template>
 
-			<template #beforeLowerMenu>
-				<BecomeTemplateCreatorCta v-if="fullyExpanded && !userIsTrialing" />
-			</template>
-			<template #menuSuffix>
-				<div>
-					<MainSidebarSourceControl :is-collapsed="isCollapsed" />
+				<div :class="$style.bottomMenu">
+					<BecomeTemplateCreatorCta v-if="fullyExpanded && !userIsTrialing" />
+					<div :class="$style.bottomMenuItems">
+						<template v-for="item in visibleMenuItems" :key="item.id">
+							<N8nPopoverReka
+								v-if="item.children"
+								:key="item.id"
+								side="right"
+								align="end"
+								:side-offset="16"
+							>
+								<template #content>
+									<div :class="$style.popover">
+										<N8nText :class="$style.popoverTitle" bold color="foreground-xdark">{{
+											item.label
+										}}</N8nText>
+										<template v-for="child in item.children" :key="child.id">
+											<component
+												:is="child.component"
+												v-if="isCustomMenuItem(child)"
+												v-bind="child.props"
+											/>
+											<N8nMenuItem v-else :item="child" @click="() => handleSelect(child.id)" />
+										</template>
+									</div>
+								</template>
+								<template #trigger>
+									<N8nMenuItem
+										:item="item"
+										:compact="isCollapsed"
+										@click="() => handleSelect(item.id)"
+									/>
+								</template>
+							</N8nPopoverReka>
+							<N8nMenuItem
+								v-else
+								:item="item"
+								:compact="isCollapsed"
+								@click="() => handleSelect(item.id)"
+							/>
+						</template>
+					</div>
 				</div>
-			</template>
-			<template v-if="showUserArea" #footer>
-				<div ref="user" :class="$style.userArea">
-					<div class="ml-3xs" data-test-id="main-sidebar-user-menu">
-						<!-- This dropdown is only enabled when sidebar is collapsed -->
-						<ElDropdown placement="right-end" trigger="click" @command="onUserActionToggle">
-							<div :class="{ [$style.avatar]: true, ['clickable']: isCollapsed }">
-								<N8nAvatar
-									:first-name="usersStore.currentUser?.firstName"
-									:last-name="usersStore.currentUser?.lastName"
-									size="small"
-								/>
+			</div>
+		</N8nScrollArea>
+
+		<MainSidebarSourceControl :is-collapsed="isCollapsed" />
+		<div v-if="showUserArea">
+			<div ref="user" :class="$style.userArea">
+				<N8nPopoverReka side="right" align="end" :side-offset="16">
+					<template #content>
+						<div :class="$style.popover">
+							<N8nMenuItem
+								v-for="action in userMenuItems"
+								:key="action.id"
+								:item="action"
+								:data-test-id="`user-menu-item-${action.id}`"
+								@click="() => onUserActionToggle(action.id)"
+							/>
+						</div>
+					</template>
+					<template #trigger>
+						<div :class="$style.userAreaInner">
+							<div class="ml-3xs" data-test-id="main-sidebar-user-menu">
+								<!-- This dropdown is only enabled when sidebar is collapsed -->
+								<div :class="{ [$style.avatar]: true, ['clickable']: isCollapsed }">
+									<N8nAvatar
+										:first-name="usersStore.currentUser?.firstName"
+										:last-name="usersStore.currentUser?.lastName"
+										size="small"
+									/>
+								</div>
 							</div>
-							<template v-if="isCollapsed" #dropdown>
-								<ElDropdownMenu>
-									<ElDropdownItem command="settings">
-										{{ i18n.baseText('settings') }}
-									</ElDropdownItem>
-									<ElDropdownItem command="logout">
-										{{ i18n.baseText('auth.signout') }}
-									</ElDropdownItem>
-								</ElDropdownMenu>
-							</template>
-						</ElDropdown>
-					</div>
-					<div
-						:class="{ ['ml-2xs']: true, [$style.userName]: true, [$style.expanded]: fullyExpanded }"
-					>
-						<N8nText size="small" :bold="true" color="text-dark">{{
-							usersStore.currentUser?.fullName
-						}}</N8nText>
-					</div>
-					<div :class="{ [$style.userActions]: true, [$style.expanded]: fullyExpanded }">
-						<N8nActionDropdown
-							:items="userMenuItems"
-							placement="top-start"
-							data-test-id="user-menu"
-							@select="onUserActionToggle"
-						/>
-					</div>
-				</div>
-			</template>
-		</N8nMenu>
+							<div
+								:class="{
+									['ml-2xs']: true,
+									[$style.userName]: true,
+									[$style.expanded]: fullyExpanded,
+								}"
+							>
+								<N8nText size="small" color="text-dark">{{
+									usersStore.currentUser?.fullName
+								}}</N8nText>
+							</div>
+							<div
+								data-test-id="user-menu"
+								:class="{ [$style.userActions]: true, [$style.expanded]: fullyExpanded }"
+							>
+								<N8nIconButton icon="ellipsis" text square type="tertiary" />
+							</div>
+						</div>
+					</template>
+				</N8nPopoverReka>
+			</div>
+		</div>
+
+		<TemplateTooltip />
 	</div>
 </template>
 
 <style lang="scss" module>
 .sideMenu {
-	display: grid;
 	position: relative;
 	height: 100%;
-	grid-template-rows: auto 1fr auto;
-	border-right: var(--border-width-base) var(--border-style-base) var(--color-foreground-base);
-	transition: width 150ms ease-in-out;
+	display: flex;
+	flex-direction: column;
+	border-right: var(--border-width) var(--border-style) var(--color--foreground);
 	width: $sidebar-expanded-width;
-	background-color: var(--menu-background, var(--color-background-xlight));
+	background-color: var(--menu-background, var(--color--background--light-3));
 
 	.logo {
 		display: flex;
 		align-items: center;
-		padding: var(--spacing-xs);
+		padding: var(--spacing--xs);
 		justify-content: space-between;
 
 		img {
@@ -561,6 +727,12 @@ onClickOutside(createBtn as Ref<VueInstance>, () => {
 	}
 }
 
+.scrollArea {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+}
+
 .sideMenuCollapseButton {
 	position: absolute;
 	right: -10px;
@@ -569,49 +741,43 @@ onClickOutside(createBtn as Ref<VueInstance>, () => {
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	color: var(--color-text-base);
-	background-color: var(--color-foreground-xlight);
+	color: var(--color--text);
+	background-color: var(--color--foreground--tint-2);
 	width: 20px;
 	height: 20px;
-	border: var(--border-width-base) var(--border-style-base) var(--color-foreground-base);
+	border: var(--border-width) var(--border-style) var(--color--foreground);
 	border-radius: 50%;
 
 	&:hover {
-		color: var(--color-primary-shade-1);
+		color: var(--color--primary--shade-1);
 	}
 }
 
-.updates {
+.bottomMenu {
 	display: flex;
-	align-items: center;
-	cursor: pointer;
-	padding: var(--spacing-2xs) var(--spacing-l);
-	margin: var(--spacing-2xs) 0 0;
+	flex-direction: column;
+	margin-top: auto;
+}
 
-	svg {
-		color: var(--color-text-base) !important;
-	}
-	span {
-		display: none;
-		&.expanded {
-			display: initial;
-		}
-	}
+.bottomMenuItems {
+	padding: var(--spacing--xs);
+}
 
-	&:hover {
-		&,
-		& svg {
-			color: var(--color-text-dark) !important;
-		}
-	}
+.popover {
+	padding: var(--spacing--xs);
+	min-width: 200px;
+}
+
+.popoverTitle {
+	display: block;
+	margin-bottom: var(--spacing--3xs);
 }
 
 .userArea {
 	display: flex;
-	padding: var(--spacing-xs);
+	padding: var(--spacing--xs);
 	align-items: center;
-	height: 60px;
-	border-top: var(--border-width-base) var(--border-style-base) var(--color-foreground-base);
+	border-top: var(--border-width) var(--border-style) var(--color--foreground);
 
 	.userName {
 		display: none;
@@ -639,6 +805,12 @@ onClickOutside(createBtn as Ref<VueInstance>, () => {
 	}
 }
 
+.userAreaInner {
+	display: flex;
+	align-items: center;
+	width: 100%;
+}
+
 @media screen and (max-height: 470px) {
 	:global(#help) {
 		display: none;
@@ -648,10 +820,10 @@ onClickOutside(createBtn as Ref<VueInstance>, () => {
 .readOnlyEnvironmentIcon {
 	display: inline-block;
 	color: white;
-	background-color: var(--color-warning);
+	background-color: var(--color--warning);
 	align-self: center;
 	padding: 2px;
-	border-radius: var(--border-radius-small);
+	border-radius: var(--radius--sm);
 	margin: 7px 12px 0 5px;
 }
 </style>
